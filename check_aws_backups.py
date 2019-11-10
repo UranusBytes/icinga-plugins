@@ -63,7 +63,7 @@ def _get_args():
     if _args.verbose:
       _logger.setLevel(logging.INFO)
       _logger.info('Logger level set to INFO')
-    elif _args.verboseverbose:
+    elif _args.debug:
       _logger.setLevel(logging.DEBUG)
     _logger.info('Logger level set to DEBUG')
     return
@@ -75,12 +75,12 @@ def _get_args():
     _parser.add_argument('-rt', '--resource_type', metavar='RESOURCE-TYPE', action='store', help='Limit backup jobs to a resource type (choices: %(choices)s)', dest='resource_type', type=str, choices=['EBS', 'SGW', 'RDS', 'DDB', 'EFS'])
     _parser.add_argument('-bvn', '--backup_vault_name', metavar='BACKUP-VAULT', action='store', help='Limit backup jobs to a backup vault', dest='backup_vault_name', type=str)
     _parser.add_argument('-P', '--period', metavar='PERIOD', help='Period (HOURS) to go back for jobs (default: %(default)s)', dest='period', type=int, default=24)
-    _parser.add_argument('-w', '--warning', metavar='WARNING', action='store', help='Value (INT) for WARNING if greater than FAILED count', dest='warning', type=int, default=0)
-    _parser.add_argument('-c', '--critical', metavar='CRITICAL', action='store', help='Value (INT) for WARNING if greater than FAILED count', dest='critical', type=int, default=0)
+    _parser.add_argument('-w', '--warning', metavar='WARNING', action='store', help='Value (INT) for WARNING if greater than FAILED count (default: %(default)s)', dest='warning', type=int, default=0)
+    _parser.add_argument('-c', '--critical', metavar='CRITICAL', action='store', help='Value (INT) for WARNING if greater than FAILED count (default: %(default)s)', dest='critical', type=int, default=0)
     _parser.add_argument('-r', '--aws_region', metavar='AWS_REGION', required=True, action='store', help='AWS region (Example: us-east-1)', dest='aws_region', type=str)
     _parser.add_argument('-p', '--aws_profile', metavar='AWS_PROFILE', action='store', help='AWS profile', dest='aws_profile', type=str)
     _parser.add_argument('-v', '--verbose', required=False, action='store_true', help='Verbose output to stderr', dest='verbose')
-    _parser.add_argument('-vv', '--verboseverbose', required=False, action='store_true', help='Debug output to stderr', dest='verboseverbose')
+    _parser.add_argument('-vv', '--debug', required=False, action='store_true', help='Debug output to stderr', dest='debug')
     _args = _parser.parse_args()
     _update_logging_level()
     _logger.debug('Args: {0}'.format(vars(_args)))
