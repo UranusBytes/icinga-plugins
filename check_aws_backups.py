@@ -149,6 +149,7 @@ def _print_stacktrace(_stacktrace):
 
 
 def _analyze_result(_args, _check_result):
+  _logger.info('Analyze results')
   _result_counts = {}
   for _result in _check_result:
     if _result['State'] in _result_counts:

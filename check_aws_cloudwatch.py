@@ -153,6 +153,7 @@ def _print_stacktrace(_stacktrace):
 
 
 def _analyze_result(_args, _check_result):
+  _logger.info('Analyze results')
   _result_txt = '{metric}: {metric_value} {metric_unit} '.format(metric=_args.metric, metric_value=_check_result[0][_args.statistic], metric_unit=_check_result[0]['Unit'])
   _comparator = getattr(operator, _args.comparator)
   if _comparator(_check_result[0][_args.statistic], _args.critical):
