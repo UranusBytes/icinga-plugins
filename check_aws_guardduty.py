@@ -32,8 +32,8 @@ import operator
 
 # Constants
 ###############################################################################
-_STDERR_OUTPUT_LEVEL = logging.CRITICAL  # Leave at logging.CRITICAL unless doing debugging
-_PRINT_STACKTRACE_ON_ERROR = False  # Show stacktrace to stderr on error
+_STDERR_OUTPUT_LEVEL = logging.DEBUG  # Leave at logging.CRITICAL unless doing debugging
+_PRINT_STACKTRACE_ON_ERROR = True  # Show stacktrace to stderr on error
 _EXIT_OK = [0, 'OK']
 _EXIT_WARNING = [1, 'WARNING']
 _EXIT_CRITICAL = [2, 'CRITICAL']
@@ -72,9 +72,10 @@ def _get_args():
     _logger.info('Parse arguments')
     _parser = argparse.ArgumentParser(description='Check an AWS GuardDuty.')
     _parser.add_argument('-P', '--period', metavar='PERIOD', help='Period (HOURS) to go back for updated findings (default: %(default)s)', dest='period', type=int, default=48)
-    _parser.add_argument('-fte', '--finding_type_exclude', metavar='FINDING-TYPE-EXCLUDE', help='Comma separated list of finding types to exclude', dest='finding_type_exclude', type=str)
-    _parser.add_argument('-w', '--warning', metavar='WARNING', action='store', help='Value (FLOAT) for WARNING if any findings with severity greater than', dest='warning', type=float, default=4)
-    _parser.add_argument('-c', '--critical', metavar='CRITICAL', action='store', help='Value (FLOAT) for CRITICAL if any findings with severity greater than', dest='critical', type=float, default=7)
+    # ToDo: Failed attempt to filter inbound connections
+    # _parser.add_argument('-C', '--criterion', metavar='CRITERION', help='Comma separated list of Criterion FIELD,COMPARATOR,VALUE.  May be called multiple times. (Example: type,NotEquals,UnauthorizedAccess:EC2/MaliciousIPCaller.Custom)', dest='criterion', type=str, nargs='*')
+    _parser.add_argument('-w', '--warning', metavar='WARNING', action='store', help='Value (INT) for WARNING if any findings with severity greater than', dest='warning', type=int, default=4)
+    _parser.add_argument('-c', '--critical', metavar='CRITICAL', action='store', help='Value (INT) for CRITICAL if any findings with severity greater than', dest='critical', type=int, default=7)
     _parser.add_argument('-r', '--aws_region', metavar='AWS_REGION', required=True, action='store', help='AWS region (Example: us-east-1)', dest='aws_region', type=str)
     _parser.add_argument('-p', '--aws_profile', metavar='AWS_PROFILE', action='store', help='AWS profile', dest='aws_profile', type=str)
     _parser.add_argument('-v', '--verbose', required=False, action='store_true', help='Verbose output to stderr', dest='verbose')
@@ -99,7 +100,7 @@ def _get_aws_client(_args):
 
     _logger.debug('Session args: {0}'.format(_session_args))
     _session = boto3.Session(**_session_args)
-    _client = _session.client(service_name='backup')
+    _client = _session.client(service_name='guardduty')
     _logger.info('AWS client created')
     return _client
   except Exception as err:
@@ -111,48 +112,59 @@ def _get_check_result(_args, _aws_client):
   def _get_detector_ids():
     _logger.info('Get detector IDs')
     _request_args = {
-      'MaxResults': 1000
+      'MaxResults': 50
     }
     _response = _aws_client.list_detectors(**_request_args)
     _logger.debug('Response Detectors: {0}'.format(_response['DetectorIds']))
     return _response['DetectorIds']
 
   def _get_findings():
-    _detector_findings = []
+    _findings_details = []
     for _detector in _detector_ids:
+      _detector_findings = []
       _logger.info('Get Findings for Detector {id}'.format(id=_detector))
+      # ToDo: Figure out how to filter on archived - https://github.com/boto/boto3/issues/1746
       _request_args = {
         'DetectorId': _detector,
-        'MaxResults': 1000,
+        'MaxResults': 50,
         'FindingCriteria': {
-          'Criteria': {
+          'Criterion': {
             'updatedAt': {
-              'GreaterThanOrEqual': [
-                datetime.utcnow() - timedelta(hours=_args.period)
-              ]
+              'GreaterThanOrEqual': int((datetime.utcnow() - timedelta(hours=_args.period)).timestamp()) * 1000
             },
             'severity': {
-              'GreaterThanOrEqual': [_args.warning]
+              'GreaterThanOrEqual': _args.warning
             }
           }
         }
       }
-      if _args.finding_type_exclude is not None:
-        _request_args['FindingCriteria']['Criteria']['type'] = {
-          'NotEquals': []
-        }
-        for _finding_type in _args.finding_type_exclude.split(','):
-          _request_args['FindingCriteria']['Criteria']['type']['NotEquals'].append(_finding_type)
+      # ToDo: Failed attempt to filter inbound connections
+      # if _args.finding_type_exclude is not None:
+      #   _request_args['FindingCriteria']['Criterion']['type'] = {
+      #     'NotEquals': []
+      #   }
+      #   for _finding_type in _args.finding_type_exclude.split(','):
+      #     _request_args['FindingCriteria']['Criterion']['type']['NotEquals'].append(_finding_type)
 
       while True:
+        _logger.debug('ListFindings Args: {args}'.format(args=_request_args))
         _response = _aws_client.list_findings(**_request_args)
-        _logger.debug('Response GuardDuty Findings: {0}'.format(_response['FindingIds']))
-        _detector_findings.extend(_response['Findings'])
-        if 'NextToken' in _response:
+        _logger.debug('Response GuardDuty Findings: {0}'.format(_response))
+        _detector_findings.extend(_response['FindingIds'])
+        if 'NextToken' in _response and _response['NextToken'] != '':
           _request_args['NextToken'] = _response['NextToken']
         else:
           break
-    return _detector_findings
+
+      _request_args = {
+        'DetectorId': _detector,
+        'FindingIds': _detector_findings
+      }
+      _response = _aws_client.get_findings(**_request_args)
+      _logger.debug('Findings Details: {0}'.format(_response['Findings']))
+      _findings_details.extend(_response['Findings'])
+
+    return _findings_details
 
   try:
     _detector_ids = _get_detector_ids()
@@ -174,6 +186,16 @@ def _print_stacktrace(_stacktrace):
 
 
 def _analyze_result(_args, _check_result):
+  def _ignore_finding():
+    # ToDo: this is a hackish way to filter INBOUND connections from the threatlist.  Need better way to filter
+    if _result['Type'] == 'UnauthorizedAccess:EC2/MaliciousIPCaller.Custom' and \
+            _result['Service']['Action']['NetworkConnectionAction']['ConnectionDirection'] == 'INBOUND':
+      _logger.debug('Ignore FindingId: {id}'.format(id=_result['Id']))
+      # This is an INBOUND connection from threatlist - noise...
+      return True
+    else:
+      return False
+  _logger.info('Analyze results')
   _result_counts = {
     'Critical': {
       'Severity': _args.critical,
@@ -184,13 +206,17 @@ def _analyze_result(_args, _check_result):
       'Count': 0
     }
   }
+  _logger.debug('Total Findings: {0}'.format(len(_check_result)))
   for _result in _check_result:
+    _logger.debug('FindingId: {id}  Severity:{severity}  LastSeen: {lastseen}  Description: {desc}'.format(id=_result['Id'], severity=_result['Severity'], lastseen=_result['Service']['EventLastSeen'] ,desc=_result['Description']))
     if _result['Service']['Archived']:
+      continue
+    elif _ignore_finding():
       continue
     if _result['Severity'] > _args.critical:
       _result_counts['Critical']['Count'] += 1
     elif _result['Severity'] > _args.warning:
-      _result_counts['Warning']['Count'] = 1
+      _result_counts['Warning']['Count'] += 1
 
   _result_txt = '{count} in last {period} hours'.format(count=_result_counts, period=_args.period)
   if _result_counts['Critical']['Count'] > 0:
