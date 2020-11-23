@@ -46,13 +46,13 @@ optional arguments:
   -p AWS_PROFILE, --aws_profile AWS_PROFILE
                         AWS profile
   -v, --verbose         Verbose output to stderr
-  -vv, --debug
+  -vv, --verboseverbose
                         Debug output to stderr
 ```
 ### Example
 This is to check the FreeStorageSpace of an RDS instance named myRdsInstance, with a warning when the metric is less than 20GB and critical when the metric is less than 10GB (Note: the unit for this metric is Byte)
 ```
-./check_aws_cloudwatch.py --aws_profile myProfileName --aws_region us-east-1 --namespace AWS/RDS --dimensions Name=DBInstanceIdentifier,Value=myRdsInstance --metric FreeStorageSpace --statistic Average --period 600 --warning 20000000000  --critical 10000000000 --comparator le
+./check_aws_cloudwatch.py --aws_profile myProfileName --aws_region us-east-1 --namespace AWS/RDS --dimensions DBInstanceIdentifier=myRdsInstance --metric FreeStorageSpace --statistic Average --period 600 --warning 20000000000  --critical 10000000000 --comparator le
 ```
 
 ## check_aws_backups
